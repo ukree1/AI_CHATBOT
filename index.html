@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Fabre AI</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- Animated Particle Background -->
+    <canvas id="particleCanvas"></canvas>
+
+    <div class="app">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+
+            <div class="brand">
+                <div class="brand-icon">✦</div>
+
+                <div>
+                    <h2>Fabre AI</h2>
+                    <span>AI Assistant</span>
+                </div>
+            </div>
+
+            <button id="newChatBtn" class="new-chat">
+                <span>＋</span>
+                New Chat
+            </button>
+
+            <div class="sidebar-title">
+                Recent Chats
+            </div>
+
+            <div class="chat-history" id="chatHistory">
+                <!-- Chat history -->
+            </div>
+
+            <div class="sidebar-bottom">
+                <span class="status-dot"></span>
+                <span>AI Online</span>
+            </div>
+
+        </aside>
+
+
+        <!-- Main Chat -->
+        <main class="chat-container">
+
+            <!-- Header -->
+            <header class="chat-header">
+
+                <div class="ai-profile">
+
+                    <div class="ai-avatar">
+                        ✦
+                    </div>
+
+                    <div>
+                        <h1>Fabre AI</h1>
+                        <span>
+                            <span class="online-dot"></span>
+                            Online
+                        </span>
+                    </div>
+
+                </div>
+
+                <div class="header-actions">
+
+                    <button class="header-btn" title="Clear Chat">
+                        ⋮
+                    </button>
+
+                </div>
+
+            </header>
+
+
+            <!-- Messages -->
+            <section class="messages" id="messages">
+
+                <div class="welcome">
+
+                    <div class="welcome-icon">
+                        ✦
+                    </div>
+
+                    <h2>
+                        How can I help you?
+                    </h2>
+
+                    <p>
+                        Ask me anything and I'll do my best to help.
+                    </p>
+
+                </div>
+
+                <div class="message ai-message">
+
+                    <div class="avatar">
+                        ✦
+                    </div>
+
+                    <div class="message-content">
+
+                        <p>
+                            Hello! 👋 I'm Fabre AI.
+                        </p>
+
+                        <p>
+                            What would you like to know?
+                        </p>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- Input -->
+            <div class="input-wrapper">
+
+                <div class="input-container">
+
+                    <textarea
+                        id="messageInput"
+                        placeholder="Message Fabre AI..."
+                        rows="1"
+                    ></textarea>
+
+                    <button id="sendBtn" title="Send message">
+                        ↑
+                    </button>
+
+                </div>
+
+                <div class="input-footer">
+                    Fabre AI can make mistakes. Check important information.
+                </div>
+
+            </div>
+
+        </main>
+
+    </div>
+
+
+   <script type="module" src="script.js"></script>
+
+</body>
+</html>

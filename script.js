@@ -1,0 +1,1875 @@
+/* ========================================
+   FIREBASE
+======================================== */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+
+import {
+    getFirestore,
+    collection,
+    addDoc,
+    doc,
+    setDoc,
+    getDoc,
+    serverTimestamp,
+    query,
+    orderBy,
+    getDocs
+} from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+
+
+/* ========================================
+   FIREBASE CONFIG
+======================================== */
+
+const firebaseConfig = {
+    apiKey: "YOUR_FIREBASE_API_KEY",
+    authDomain: "ai-chat-bot-45c7c.firebaseapp.com",
+    projectId: "ai-chat-bot-45c7c",
+    storageBucket: "ai-chat-bot-45c7c.firebasestorage.app",
+    messagingSenderId: "485108668518",
+    appId: "1:485108668518:web:7ce528da41402326aab5a7",
+    measurementId: "G-XDTGKLL2PT"
+};
+
+
+/* ========================================
+   INITIALIZE FIREBASE
+======================================== */
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+console.log("Firebase connected:", firebaseApp.name);
+
+
+/* ========================================
+   GEMINI CONFIG
+======================================== */
+
+/*
+   IMPORTANT:
+   Do NOT use an exposed/old Gemini API key.
+   Rotate your key and replace this with a
+   new key for testing only.
+
+   For production, move Gemini requests
+   to a backend/server function.
+*/
+
+
+const MODEL = "gemini-3.7-flash";
+
+const API_URL =
+    "https://generativelanguage.googleapis.com/v1beta/interactions";
+
+
+/* ========================================
+   CHAT ELEMENTS
+======================================== */
+
+const messagesContainer =
+    document.getElementById("messages");
+
+const messageInput =
+    document.getElementById("messageInput");
+
+const sendBtn =
+    document.getElementById("sendBtn");
+
+const newChatBtn =
+    document.getElementById("newChatBtn");
+
+const chatHistory =
+    document.getElementById("chatHistory");
+
+
+/* ========================================
+   CHAT STATE
+======================================== */
+
+let previousInteractionId = null;
+
+let isGenerating = false;
+
+let currentChatId = null;
+
+
+/* ========================================
+   CREATE CHAT ID
+======================================== */
+
+function createChatId() {
+    return crypto.randomUUID();
+}
+
+
+/* ========================================
+   CREATE CHAT
+======================================== */
+
+async function createNewChatDocument(title = "New Chat") {
+
+    const chatId = createChatId();
+
+    currentChatId = chatId;
+
+    previousInteractionId = null;
+
+    try {
+
+        await setDoc(
+            doc(db, "chats", chatId),
+            {
+                title: title,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+                geminiInteractionId: null
+            }
+        );
+
+        console.log("New chat created:", chatId);
+
+        return chatId;
+
+    } catch (error) {
+
+        console.error(
+            "Error creating chat:",
+            error
+        );
+
+        return chatId;
+    }
+}
+
+
+/* ========================================
+   UPDATE CHAT
+======================================== */
+
+async function updateChatDocument(data) {
+
+    if (!currentChatId) return;
+
+    try {
+
+        await setDoc(
+            doc(
+                db,
+                "chats",
+                currentChatId
+            ),
+            data,
+            {
+                merge: true
+            }
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Error updating chat:",
+            error
+        );
+    }
+}
+
+
+/* ========================================
+   SAVE MESSAGE
+======================================== */
+
+async function saveMessageToFirebase(role, text) {
+
+    try {
+
+        if (!currentChatId) {
+            await createNewChatDocument();
+        }
+
+        await addDoc(
+            collection(
+                db,
+                "chats",
+                currentChatId,
+                "messages"
+            ),
+            {
+                role: role,
+                text: text,
+                timestamp: serverTimestamp()
+            }
+        );
+
+        await updateChatDocument({
+            updatedAt: serverTimestamp()
+        });
+
+        console.log(
+            "Message saved to Firebase."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Firebase save error:",
+            error
+        );
+    }
+}
+
+
+/* ========================================
+   SAVE GEMINI INTERACTION ID
+======================================== */
+
+async function saveInteractionId(id) {
+
+    if (!id || !currentChatId) return;
+
+    previousInteractionId = id;
+
+    await updateChatDocument({
+        geminiInteractionId: id,
+        updatedAt: serverTimestamp()
+    });
+}
+
+
+/* ========================================
+   CREATE CHAT TITLE
+======================================== */
+
+function generateChatTitle(message) {
+
+    let title = message.trim();
+
+    if (!title) {
+        return "New Chat";
+    }
+
+    if (title.length > 35) {
+        title = title.substring(0, 35) + "...";
+    }
+
+    return title;
+}
+
+
+/* ========================================
+   SEND MESSAGE
+======================================== */
+
+async function sendMessage() {
+
+    const message =
+        messageInput.value.trim();
+
+    if (!message || isGenerating) {
+        return;
+    }
+
+    isGenerating = true;
+
+    sendBtn.disabled = true;
+
+    /* ========================================
+       CREATE CHAT IF NEEDED
+    ======================================== */
+
+    const isFirstMessage =
+        !currentChatId;
+
+    if (!currentChatId) {
+
+        await createNewChatDocument(
+            generateChatTitle(message)
+        );
+
+    }
+
+
+    /* ========================================
+       SHOW USER MESSAGE
+    ======================================== */
+
+    addMessage(
+        "user",
+        message
+    );
+
+    messageInput.value = "";
+
+    await saveMessageToFirebase(
+        "user",
+        message
+    );
+
+
+    /* ========================================
+       UPDATE TITLE
+    ======================================== */
+
+    if (isFirstMessage) {
+
+        await updateChatDocument({
+            title: generateChatTitle(message)
+        });
+
+    }
+
+
+    /* ========================================
+       LOADING
+    ======================================== */
+
+    const loadingMessage =
+        addLoadingMessage();
+
+
+    try {
+
+        /* ========================================
+           REQUEST BODY
+        ======================================== */
+
+        const requestBody = {
+
+            model: MODEL,
+
+            input: message,
+
+            stream: true,
+
+            system_instruction: `
+You are Fabre AI, a helpful AI assistant.
+
+Response rules:
+- Be concise and direct.
+- Normally answer in 2 to 5 sentences.
+- Use short bullet points when useful.
+- Avoid unnecessary explanations.
+- Do not repeat the user's question.
+- Only give detailed answers when the user asks.
+- Use simple and clear language.
+            `,
+
+            generation_config: {
+
+                max_output_tokens: 500,
+
+                thinking_level: "low"
+
+            }
+
+        };
+
+
+        /* ========================================
+           CONTINUE CONVERSATION
+        ======================================== */
+
+        if (previousInteractionId) {
+
+            requestBody.previous_interaction_id =
+                previousInteractionId;
+
+        }
+
+
+        /* ========================================
+           GEMINI REQUEST
+        ======================================== */
+
+        const response = await fetch(
+            API_URL,
+            {
+                method: "POST",
+
+                headers: {
+
+                    "Content-Type":
+                        "application/json",
+
+                    "x-goog-api-key":
+                        API_KEY
+
+                },
+
+                body: JSON.stringify(
+                    requestBody
+                )
+            }
+        );
+
+
+        /* ========================================
+           ERROR HANDLING
+        ======================================== */
+
+        if (!response.ok) {
+
+            const errorText =
+                await response.text();
+
+            let errorMessage =
+                "Gemini API request failed.";
+
+            try {
+
+                const errorData =
+                    JSON.parse(errorText);
+
+                errorMessage =
+                    errorData.error?.message ||
+                    errorMessage;
+
+            } catch {
+
+                errorMessage =
+                    errorText ||
+                    errorMessage;
+
+            }
+
+            throw new Error(
+                errorMessage
+            );
+        }
+
+
+        /* ========================================
+           CHECK STREAM
+        ======================================== */
+
+        if (!response.body) {
+
+            throw new Error(
+                "Streaming is not supported by this browser."
+            );
+
+        }
+
+
+        /* ========================================
+           REMOVE LOADING
+        ======================================== */
+
+        loadingMessage.remove();
+
+
+        /* ========================================
+           CREATE AI MESSAGE
+        ======================================== */
+
+        const aiMessageDiv =
+            document.createElement("div");
+
+        aiMessageDiv.classList.add(
+            "message",
+            "ai-message"
+        );
+
+        aiMessageDiv.innerHTML = `
+            <div class="avatar">🤖</div>
+
+            <div class="message-content ai-stream-content">
+                <span class="cursor">▌</span>
+            </div>
+        `;
+
+        messagesContainer.appendChild(
+            aiMessageDiv
+        );
+
+
+        const aiContent =
+            aiMessageDiv.querySelector(
+                ".ai-stream-content"
+            );
+
+
+        /* ========================================
+           STREAM READER
+        ======================================== */
+
+        const reader =
+            response.body.getReader();
+
+        const decoder =
+            new TextDecoder("utf-8");
+
+        let buffer = "";
+
+        let aiResponse = "";
+
+
+        /* ========================================
+           READ STREAM
+        ======================================== */
+
+        while (true) {
+
+            const {
+                value,
+                done
+            } = await reader.read();
+
+            if (done) break;
+
+
+            buffer += decoder.decode(
+                value,
+                {
+                    stream: true
+                }
+            );
+
+
+            /* ========================================
+               SPLIT SSE EVENTS
+            ======================================== */
+
+            const events =
+                buffer.split("\n\n");
+
+            buffer =
+                events.pop() || "";
+
+
+            for (const event of events) {
+
+                const lines =
+                    event.split("\n");
+
+                let eventType = "";
+
+                let dataText = "";
+
+
+                for (const line of lines) {
+
+                    if (
+                        line.startsWith("event:")
+                    ) {
+
+                        eventType =
+                            line
+                                .slice(6)
+                                .trim();
+
+                    }
+
+                    else if (
+                        line.startsWith("data:")
+                    ) {
+
+                        dataText +=
+                            line
+                                .slice(5)
+                                .trim();
+
+                    }
+
+                }
+
+
+                /* ========================================
+                   IGNORE EMPTY EVENTS
+                ======================================== */
+
+                if (!dataText) continue;
+
+                if (dataText === "[DONE]") {
+                    continue;
+                }
+
+
+                /* ========================================
+                   PARSE EVENT
+                ======================================== */
+
+                let data;
+
+                try {
+
+                    data =
+                        JSON.parse(
+                            dataText
+                        );
+
+                } catch (error) {
+
+                    console.warn(
+                        "Could not parse SSE data:",
+                        dataText
+                    );
+
+                    continue;
+                }
+
+
+                /* ========================================
+                   INTERACTION CREATED
+                ======================================== */
+
+                if (
+                    eventType ===
+                        "interaction.created" &&
+                    data.interaction?.id
+                ) {
+
+                    await saveInteractionId(
+                        data.interaction.id
+                    );
+
+                }
+
+
+                /* ========================================
+                   INTERACTION COMPLETED
+                ======================================== */
+
+                if (
+                    eventType ===
+                    "interaction.completed"
+                ) {
+
+                    if (
+                        data.interaction?.id
+                    ) {
+
+                        await saveInteractionId(
+                            data.interaction.id
+                        );
+
+                    }
+
+                }
+
+
+                /* ========================================
+                   STREAM TEXT
+                ======================================== */
+
+                if (
+                    eventType ===
+                        "step.delta" &&
+                    data.delta
+                ) {
+
+                    if (
+                        data.delta.type ===
+                            "text" &&
+                        data.delta.text
+                    ) {
+
+                        aiResponse +=
+                            data.delta.text;
+
+
+                        aiContent.innerHTML =
+                            formatAIResponse(
+                                aiResponse
+                            ) +
+                            '<span class="cursor">▌</span>';
+
+
+                        scrollToBottom();
+
+                    }
+
+                }
+
+
+                /* ========================================
+                   STREAM ERROR
+                ======================================== */
+
+                if (
+                    eventType === "error"
+                ) {
+
+                    throw new Error(
+                        data.error?.message ||
+                        "Gemini streaming error."
+                    );
+
+                }
+
+            }
+
+        }
+
+
+        /* ========================================
+           FINAL RESPONSE
+        ======================================== */
+
+        if (!aiResponse.trim()) {
+
+            throw new Error(
+                "Gemini returned an empty response."
+            );
+
+        }
+
+
+        aiContent.innerHTML =
+            formatAIResponse(
+                aiResponse
+            );
+
+
+        /* ========================================
+           SAVE AI RESPONSE
+        ======================================== */
+
+        await saveMessageToFirebase(
+            "assistant",
+            aiResponse
+        );
+
+
+        /* ========================================
+           REFRESH RECENT CHATS
+        ======================================== */
+
+        await loadRecentChats();
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Gemini Error:",
+            error
+        );
+
+
+        if (
+            loadingMessage &&
+            loadingMessage.parentNode
+        ) {
+
+            loadingMessage.remove();
+
+        }
+
+
+        let friendlyError =
+            error.message;
+
+
+        /* ========================================
+           QUOTA ERROR
+        ======================================== */
+
+        if (
+            error.message
+                .toLowerCase()
+                .includes("quota")
+        ) {
+
+            friendlyError =
+                "⚡ Fabre AI is temporarily unavailable because the Gemini API quota has been reached.";
+
+        }
+
+
+        addMessage(
+            "ai",
+            `❌ ${friendlyError}`
+        );
+
+    }
+
+    finally {
+
+        isGenerating = false;
+
+        sendBtn.disabled = false;
+
+        messageInput.focus();
+
+    }
+
+}
+
+
+/* ========================================
+   ADD MESSAGE
+======================================== */
+
+function addMessage(
+    sender,
+    text
+) {
+
+    const messageDiv =
+        document.createElement("div");
+
+
+    messageDiv.classList.add(
+        "message"
+    );
+
+
+    /* ========================================
+       USER
+    ======================================== */
+
+    if (sender === "user") {
+
+        messageDiv.classList.add(
+            "user-message"
+        );
+
+        messageDiv.innerHTML = `
+            <div class="message-content">
+                <p>${escapeHTML(text)}</p>
+            </div>
+
+            <div class="avatar">
+                👤
+            </div>
+        `;
+
+    }
+
+
+    /* ========================================
+       AI
+    ======================================== */
+
+    else {
+
+        messageDiv.classList.add(
+            "ai-message"
+        );
+
+        messageDiv.innerHTML = `
+            <div class="avatar">
+                🤖
+            </div>
+
+            <div class="message-content">
+                ${formatAIResponse(text)}
+            </div>
+        `;
+
+    }
+
+
+    messagesContainer.appendChild(
+        messageDiv
+    );
+
+    scrollToBottom();
+
+}
+
+
+/* ========================================
+   LOADING MESSAGE
+======================================== */
+
+function addLoadingMessage() {
+
+    const messageDiv =
+        document.createElement("div");
+
+
+    messageDiv.classList.add(
+        "message",
+        "ai-message"
+    );
+
+
+    messageDiv.innerHTML = `
+        <div class="avatar">
+            🤖
+        </div>
+
+        <div class="message-content typing">
+            AI is thinking...
+        </div>
+    `;
+
+
+    messagesContainer.appendChild(
+        messageDiv
+    );
+
+
+    scrollToBottom();
+
+
+    return messageDiv;
+
+}
+
+
+/* ========================================
+   FORMAT AI RESPONSE
+======================================== */
+
+function formatAIResponse(text) {
+
+    let formatted =
+        escapeHTML(text);
+
+
+    /* ========================================
+       BOLD
+    ======================================== */
+
+    formatted =
+        formatted.replace(
+            /\*\*(.*?)\*\*/g,
+            "<strong>$1</strong>"
+        );
+
+
+    /* ========================================
+       ITALIC
+    ======================================== */
+
+    formatted =
+        formatted.replace(
+            /\*(.*?)\*/g,
+            "<em>$1</em>"
+        );
+
+
+    /* ========================================
+       INLINE CODE
+    ======================================== */
+
+    formatted =
+        formatted.replace(
+            /`([^`]+)`/g,
+            "<code>$1</code>"
+        );
+
+
+    /* ========================================
+       NEW LINES
+    ======================================== */
+
+    formatted =
+        formatted.replace(
+            /\n/g,
+            "<br>"
+        );
+
+
+    return formatted;
+
+}
+
+
+/* ========================================
+   ESCAPE HTML
+======================================== */
+
+function escapeHTML(text) {
+
+    const div =
+        document.createElement("div");
+
+    div.textContent =
+        text;
+
+    return div.innerHTML;
+
+}
+
+
+/* ========================================
+   SCROLL
+======================================== */
+
+function scrollToBottom() {
+
+    messagesContainer.scrollTop =
+        messagesContainer.scrollHeight;
+
+}
+
+
+/* ========================================
+   LOAD RECENT CHATS
+======================================== */
+
+async function loadRecentChats() {
+
+    if (!chatHistory) {
+        return;
+    }
+
+
+    try {
+
+        const chatsRef =
+            collection(
+                db,
+                "chats"
+            );
+
+
+        const chatsQuery =
+            query(
+                chatsRef,
+                orderBy(
+                    "updatedAt",
+                    "desc"
+                )
+            );
+
+
+        const snapshot =
+            await getDocs(
+                chatsQuery
+            );
+
+
+        chatHistory.innerHTML = "";
+
+
+        snapshot.forEach(
+            (chatDoc) => {
+
+                const data =
+                    chatDoc.data();
+
+
+                const chatItem =
+                    document.createElement("div");
+
+
+                chatItem.classList.add(
+                    "chat-history-item"
+                );
+
+
+                chatItem.dataset.chatId =
+                    chatDoc.id;
+
+
+                chatItem.textContent =
+                    data.title ||
+                    "New Chat";
+
+
+                chatItem.title =
+                    data.title ||
+                    "New Chat";
+
+
+                chatItem.addEventListener(
+                    "click",
+                    () => {
+
+                        if (isGenerating) {
+                            return;
+                        }
+
+                        loadChat(
+                            chatDoc.id
+                        );
+
+                    }
+                );
+
+
+                chatHistory.appendChild(
+                    chatItem
+                );
+
+            }
+        );
+
+
+        console.log(
+            "Recent chats loaded."
+        );
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Error loading recent chats:",
+            error
+        );
+
+    }
+
+}
+
+
+/* ========================================
+   LOAD CHAT
+======================================== */
+
+async function loadChat(chatId) {
+
+    if (isGenerating) {
+        return;
+    }
+
+
+    try {
+
+        const chatRef =
+            doc(
+                db,
+                "chats",
+                chatId
+            );
+
+
+        const chatSnapshot =
+            await getDoc(
+                chatRef
+            );
+
+
+        if (!chatSnapshot.exists()) {
+
+            console.warn(
+                "Chat does not exist."
+            );
+
+            return;
+
+        }
+
+
+        const chatData =
+            chatSnapshot.data();
+
+
+        /* ========================================
+           RESTORE GEMINI INTERACTION
+        ======================================== */
+
+        previousInteractionId =
+            chatData.geminiInteractionId ||
+            null;
+
+
+        currentChatId =
+            chatId;
+
+
+        /* ========================================
+           LOAD MESSAGES
+        ======================================== */
+
+        await loadChatMessages(
+            chatId
+        );
+
+
+        /* ========================================
+           HIGHLIGHT ACTIVE CHAT
+        ======================================== */
+
+        highlightActiveChat(
+            chatId
+        );
+
+
+        console.log(
+            "Chat loaded:",
+            chatId
+        );
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Error loading chat:",
+            error
+        );
+
+    }
+
+}
+
+
+/* ========================================
+   LOAD CHAT MESSAGES
+======================================== */
+
+async function loadChatMessages(chatId) {
+
+    try {
+
+        const messagesRef =
+            collection(
+                db,
+                "chats",
+                chatId,
+                "messages"
+            );
+
+
+        const messagesQuery =
+            query(
+                messagesRef,
+                orderBy(
+                    "timestamp",
+                    "asc"
+                )
+            );
+
+
+        const snapshot =
+            await getDocs(
+                messagesQuery
+            );
+
+
+        messagesContainer.innerHTML = "";
+
+
+        if (snapshot.empty) {
+
+            messagesContainer.innerHTML = `
+                <div class="message ai-message">
+                    <div class="avatar">
+                        🤖
+                    </div>
+
+                    <div class="message-content">
+                        <p>
+                            Hello! 👋 I'm Fabre AI.
+                        </p>
+
+                        <p>
+                            How can I help you today?
+                        </p>
+                    </div>
+                </div>
+            `;
+
+            return;
+
+        }
+
+
+        snapshot.forEach(
+            (messageDoc) => {
+
+                const data =
+                    messageDoc.data();
+
+
+                addMessage(
+                    data.role === "user"
+                        ? "user"
+                        : "ai",
+                    data.text || ""
+                );
+
+            }
+        );
+
+
+        scrollToBottom();
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Error loading chat messages:",
+            error
+        );
+
+    }
+
+}
+
+
+/* ========================================
+   HIGHLIGHT ACTIVE CHAT
+======================================== */
+
+function highlightActiveChat(chatId) {
+
+    if (!chatHistory) {
+        return;
+    }
+
+
+    const items =
+        chatHistory.querySelectorAll(
+            ".chat-history-item"
+        );
+
+
+    items.forEach(
+        (item) => {
+
+            item.classList.remove(
+                "active"
+            );
+
+
+            if (
+                item.dataset.chatId ===
+                chatId
+            ) {
+
+                item.classList.add(
+                    "active"
+                );
+
+            }
+
+        }
+    );
+
+}
+
+
+/* ========================================
+   ENTER KEY
+======================================== */
+
+messageInput.addEventListener(
+    "keydown",
+    function (event) {
+
+        if (
+            event.key === "Enter" &&
+            !event.shiftKey
+        ) {
+
+            event.preventDefault();
+
+            sendMessage();
+
+        }
+
+    }
+);
+
+
+/* ========================================
+   SEND BUTTON
+======================================== */
+
+sendBtn.addEventListener(
+    "click",
+    sendMessage
+);
+
+
+/* ========================================
+   NEW CHAT
+======================================== */
+
+newChatBtn.addEventListener(
+    "click",
+    async function () {
+
+        if (isGenerating) {
+            return;
+        }
+
+
+        previousInteractionId =
+            null;
+
+
+        currentChatId =
+            null;
+
+
+        messagesContainer.innerHTML = `
+            <div class="message ai-message">
+
+                <div class="avatar">
+                    🤖
+                </div>
+
+                <div class="message-content">
+
+                    <p>
+                        Hello! 👋 I'm Fabre AI.
+                    </p>
+
+                    <p>
+                        How can I help you today?
+                    </p>
+
+                </div>
+
+            </div>
+        `;
+
+
+        messageInput.value = "";
+
+        messageInput.focus();
+
+
+        /* ========================================
+           REMOVE ACTIVE CHAT
+        ======================================== */
+
+        if (chatHistory) {
+
+            const items =
+                chatHistory.querySelectorAll(
+                    ".chat-history-item"
+                );
+
+
+            items.forEach(
+                (item) => {
+
+                    item.classList.remove(
+                        "active"
+                    );
+
+                }
+            );
+
+        }
+
+    }
+);
+
+
+/* ========================================
+   INITIALIZE CHAT
+======================================== */
+
+async function initializeChat() {
+
+    try {
+
+        await loadRecentChats();
+
+        console.log(
+            "Fabre AI initialized."
+        );
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Initialization error:",
+            error
+        );
+
+    }
+
+}
+
+
+initializeChat();
+
+
+/* ========================================
+   PARTICLE NETWORK BACKGROUND
+======================================== */
+
+const canvas =
+    document.getElementById(
+        "particleCanvas"
+    );
+
+const ctx =
+    canvas.getContext("2d");
+
+
+let particles = [];
+
+
+const particleCount = 90;
+
+const connectionDistance = 140;
+
+
+const mouse = {
+
+    x: null,
+
+    y: null,
+
+    radius: 150
+
+};
+
+
+/* ========================================
+   CANVAS SIZE
+======================================== */
+
+function resizeCanvas() {
+
+    canvas.width =
+        window.innerWidth;
+
+    canvas.height =
+        window.innerHeight;
+
+}
+
+
+resizeCanvas();
+
+
+window.addEventListener(
+    "resize",
+    resizeCanvas
+);
+
+
+/* ========================================
+   MOUSE
+======================================== */
+
+window.addEventListener(
+    "mousemove",
+    function (event) {
+
+        mouse.x =
+            event.clientX;
+
+        mouse.y =
+            event.clientY;
+
+    }
+);
+
+
+window.addEventListener(
+    "mouseout",
+    function () {
+
+        mouse.x = null;
+
+        mouse.y = null;
+
+    }
+);
+
+
+/* ========================================
+   PARTICLE
+======================================== */
+
+class Particle {
+
+    constructor() {
+
+        this.x =
+            Math.random() *
+            canvas.width;
+
+        this.y =
+            Math.random() *
+            canvas.height;
+
+        this.size =
+            Math.random() * 2 +
+            0.5;
+
+        this.speedX =
+            (Math.random() - 0.5) *
+            0.5;
+
+        this.speedY =
+            (Math.random() - 0.5) *
+            0.5;
+
+        this.opacity =
+            Math.random() *
+            0.7 +
+            0.2;
+
+    }
+
+
+    update() {
+
+        this.x +=
+            this.speedX;
+
+        this.y +=
+            this.speedY;
+
+
+        /* ========================================
+           BOUNCE
+        ======================================== */
+
+        if (
+            this.x < 0 ||
+            this.x > canvas.width
+        ) {
+
+            this.speedX *= -1;
+
+        }
+
+
+        if (
+            this.y < 0 ||
+            this.y > canvas.height
+        ) {
+
+            this.speedY *= -1;
+
+        }
+
+
+        /* ========================================
+           MOUSE INTERACTION
+        ======================================== */
+
+        if (
+            mouse.x !== null &&
+            mouse.y !== null
+        ) {
+
+            const dx =
+                this.x -
+                mouse.x;
+
+            const dy =
+                this.y -
+                mouse.y;
+
+            const distance =
+                Math.sqrt(
+                    dx * dx +
+                    dy * dy
+                );
+
+
+            if (
+                distance > 0 &&
+                distance < mouse.radius
+            ) {
+
+                const force =
+                    (
+                        mouse.radius -
+                        distance
+                    ) /
+                    mouse.radius;
+
+
+                this.x +=
+                    (
+                        dx /
+                        distance
+                    ) *
+                    force *
+                    0.5;
+
+
+                this.y +=
+                    (
+                        dy /
+                        distance
+                    ) *
+                    force *
+                    0.5;
+
+            }
+
+        }
+
+    }
+
+
+    draw() {
+
+        ctx.beginPath();
+
+
+        ctx.arc(
+            this.x,
+            this.y,
+            this.size,
+            0,
+            Math.PI * 2
+        );
+
+
+        ctx.fillStyle =
+            `rgba(168, 85, 247, ${this.opacity})`;
+
+
+        ctx.shadowBlur = 12;
+
+
+        ctx.shadowColor =
+            "rgba(168, 85, 247, 0.8)";
+
+
+        ctx.fill();
+
+
+        ctx.shadowBlur = 0;
+
+    }
+
+}
+
+
+/* ========================================
+   CREATE PARTICLES
+======================================== */
+
+function createParticles() {
+
+    particles = [];
+
+
+    for (
+        let i = 0;
+        i < particleCount;
+        i++
+    ) {
+
+        particles.push(
+            new Particle()
+        );
+
+    }
+
+}
+
+
+createParticles();
+
+
+/* ========================================
+   CONNECT PARTICLES
+======================================== */
+
+function connectParticles() {
+
+    for (
+        let a = 0;
+        a < particles.length;
+        a++
+    ) {
+
+        for (
+            let b = a + 1;
+            b < particles.length;
+            b++
+        ) {
+
+            const dx =
+                particles[a].x -
+                particles[b].x;
+
+            const dy =
+                particles[a].y -
+                particles[b].y;
+
+
+            const distance =
+                Math.sqrt(
+                    dx * dx +
+                    dy * dy
+                );
+
+
+            if (
+                distance <
+                connectionDistance
+            ) {
+
+                const opacity =
+                    1 -
+                    distance /
+                    connectionDistance;
+
+
+                ctx.beginPath();
+
+
+                ctx.moveTo(
+                    particles[a].x,
+                    particles[a].y
+                );
+
+
+                ctx.lineTo(
+                    particles[b].x,
+                    particles[b].y
+                );
+
+
+                ctx.strokeStyle =
+                    `rgba(168, 85, 247, ${opacity * 0.25})`;
+
+
+                ctx.lineWidth = 0.7;
+
+
+                ctx.stroke();
+
+            }
+
+        }
+
+    }
+
+}
+
+
+/* ========================================
+   ANIMATION
+======================================== */
+
+function animateParticles() {
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    particles.forEach(
+        particle =>
+            particle.update()
+    );
+
+
+    connectParticles();
+
+
+    particles.forEach(
+        particle =>
+            particle.draw()
+    );
+
+
+    requestAnimationFrame(
+        animateParticles
+    );
+
+}
+
+
+animateParticles();
