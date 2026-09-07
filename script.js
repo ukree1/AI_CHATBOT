@@ -1,3 +1,4 @@
+javascript
 /* ========================================
    FIREBASE
 ======================================== */
@@ -49,19 +50,19 @@ console.log("Firebase connected:", firebaseApp.name);
 
 /*
    IMPORTANT:
-   Do NOT use an exposed/old Gemini API key.
-   Rotate your key and replace this with a
-   new key for testing only.
+   Gemini API requests are now handled by
+   the Vercel serverless function.
 
-   For production, move Gemini requests
-   to a backend/server function.
+   The Gemini API key is NOT stored here.
+
+   Frontend:
+   /api/chat
+
+   Backend:
+   process.env.GEMINI_API_KEY
 */
 
-
-const MODEL = "gemini-3.7-flash";
-
-const API_URL =
-    "https://generativelanguage.googleapis.com/v1beta/interactions";
+const API_URL = "/api/chat";
 
 
 /* ========================================
@@ -89,9 +90,7 @@ const chatHistory =
 ======================================== */
 
 let previousInteractionId = null;
-
 let isGenerating = false;
-
 let currentChatId = null;
 
 
@@ -113,7 +112,6 @@ async function createNewChatDocument(title = "New Chat") {
     const chatId = createChatId();
 
     currentChatId = chatId;
-
     previousInteractionId = null;
 
     try {
@@ -128,7 +126,10 @@ async function createNewChatDocument(title = "New Chat") {
             }
         );
 
-        console.log("New chat created:", chatId);
+        console.log(
+            "New chat created:",
+            chatId
+        );
 
         return chatId;
 
@@ -150,7 +151,9 @@ async function createNewChatDocument(title = "New Chat") {
 
 async function updateChatDocument(data) {
 
-    if (!currentChatId) return;
+    if (!currentChatId) {
+        return;
+    }
 
     try {
 
@@ -180,11 +183,15 @@ async function updateChatDocument(data) {
    SAVE MESSAGE
 ======================================== */
 
-async function saveMessageToFirebase(role, text) {
+async function saveMessageToFirebase(
+    role,
+    text
+) {
 
     try {
 
         if (!currentChatId) {
+
             await createNewChatDocument();
         }
 
@@ -226,14 +233,26 @@ async function saveMessageToFirebase(role, text) {
 
 async function saveInteractionId(id) {
 
-    if (!id || !currentChatId) return;
+    if (!id || !currentChatId) {
+        return;
+    }
 
     previousInteractionId = id;
 
-    await updateChatDocument({
-        geminiInteractionId: id,
-        updatedAt: serverTimestamp()
-    });
+    try {
+
+        await updateChatDocument({
+            geminiInteractionId: id,
+            updatedAt: serverTimestamp()
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Error saving interaction ID:",
+            error
+        );
+    }
 }
 
 
@@ -250,7 +269,9 @@ function generateChatTitle(message) {
     }
 
     if (title.length > 35) {
-        title = title.substring(0, 35) + "...";
+        title =
+            title.substring(0, 35) +
+            "...";
     }
 
     return title;
@@ -266,13 +287,17 @@ async function sendMessage() {
     const message =
         messageInput.value.trim();
 
-    if (!message || isGenerating) {
+    if (
+        !message ||
+        isGenerating
+    ) {
         return;
     }
 
     isGenerating = true;
 
     sendBtn.disabled = true;
+
 
     /* ========================================
        CREATE CHAT IF NEEDED
@@ -286,7 +311,6 @@ async function sendMessage() {
         await createNewChatDocument(
             generateChatTitle(message)
         );
-
     }
 
 
@@ -314,9 +338,9 @@ async function sendMessage() {
     if (isFirstMessage) {
 
         await updateChatDocument({
-            title: generateChatTitle(message)
+            title:
+                generateChatTitle(message)
         });
-
     }
 
 
@@ -331,77 +355,27 @@ async function sendMessage() {
     try {
 
         /* ========================================
-           REQUEST BODY
+           VERCEL API REQUEST
         ======================================== */
 
-        const requestBody = {
+        const response =
+            await fetch(
+                API_URL,
+                {
+                    method: "POST",
 
-            model: MODEL,
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
 
-            input: message,
-
-            stream: true,
-
-            system_instruction: `
-You are Fabre AI, a helpful AI assistant.
-
-Response rules:
-- Be concise and direct.
-- Normally answer in 2 to 5 sentences.
-- Use short bullet points when useful.
-- Avoid unnecessary explanations.
-- Do not repeat the user's question.
-- Only give detailed answers when the user asks.
-- Use simple and clear language.
-            `,
-
-            generation_config: {
-
-                max_output_tokens: 500,
-
-                thinking_level: "low"
-
-            }
-
-        };
-
-
-        /* ========================================
-           CONTINUE CONVERSATION
-        ======================================== */
-
-        if (previousInteractionId) {
-
-            requestBody.previous_interaction_id =
-                previousInteractionId;
-
-        }
-
-
-        /* ========================================
-           GEMINI REQUEST
-        ======================================== */
-
-        const response = await fetch(
-            API_URL,
-            {
-                method: "POST",
-
-                headers: {
-
-                    "Content-Type":
-                        "application/json",
-
-                    "x-goog-api-key":
-                        API_KEY
-
-                },
-
-                body: JSON.stringify(
-                    requestBody
-                )
-            }
-        );
+                    body: JSON.stringify({
+                        message: message,
+                        previousInteractionId:
+                            previousInteractionId
+                    })
+                }
+            );
 
 
         /* ========================================
@@ -414,15 +388,18 @@ Response rules:
                 await response.text();
 
             let errorMessage =
-                "Gemini API request failed.";
+                "AI request failed.";
 
             try {
 
                 const errorData =
-                    JSON.parse(errorText);
+                    JSON.parse(
+                        errorText
+                    );
 
                 errorMessage =
-                    errorData.error?.message ||
+                    errorData.error ||
+                    errorData.details ||
                     errorMessage;
 
             } catch {
@@ -430,7 +407,6 @@ Response rules:
                 errorMessage =
                     errorText ||
                     errorMessage;
-
             }
 
             throw new Error(
@@ -448,7 +424,6 @@ Response rules:
             throw new Error(
                 "Streaming is not supported by this browser."
             );
-
         }
 
 
@@ -456,7 +431,13 @@ Response rules:
            REMOVE LOADING
         ======================================== */
 
-        loadingMessage.remove();
+        if (
+            loadingMessage &&
+            loadingMessage.parentNode
+        ) {
+
+            loadingMessage.remove();
+        }
 
 
         /* ========================================
@@ -472,7 +453,9 @@ Response rules:
         );
 
         aiMessageDiv.innerHTML = `
-            <div class="avatar">🤖</div>
+            <div class="avatar">
+                🤖
+            </div>
 
             <div class="message-content ai-stream-content">
                 <span class="cursor">▌</span>
@@ -501,7 +484,6 @@ Response rules:
             new TextDecoder("utf-8");
 
         let buffer = "";
-
         let aiResponse = "";
 
 
@@ -516,15 +498,18 @@ Response rules:
                 done
             } = await reader.read();
 
-            if (done) break;
+            if (done) {
+                break;
+            }
 
 
-            buffer += decoder.decode(
-                value,
-                {
-                    stream: true
-                }
-            );
+            buffer +=
+                decoder.decode(
+                    value,
+                    {
+                        stream: true
+                    }
+                );
 
 
             /* ========================================
@@ -538,20 +523,29 @@ Response rules:
                 events.pop() || "";
 
 
-            for (const event of events) {
+            for (
+                const event of events
+            ) {
 
                 const lines =
                     event.split("\n");
 
                 let eventType = "";
-
                 let dataText = "";
 
 
-                for (const line of lines) {
+                /* ========================================
+                   READ SSE LINES
+                ======================================== */
+
+                for (
+                    const line of lines
+                ) {
 
                     if (
-                        line.startsWith("event:")
+                        line.startsWith(
+                            "event:"
+                        )
                     ) {
 
                         eventType =
@@ -559,19 +553,17 @@ Response rules:
                                 .slice(6)
                                 .trim();
 
-                    }
-
-                    else if (
-                        line.startsWith("data:")
+                    } else if (
+                        line.startsWith(
+                            "data:"
+                        )
                     ) {
 
                         dataText +=
                             line
                                 .slice(5)
                                 .trim();
-
                     }
-
                 }
 
 
@@ -579,9 +571,13 @@ Response rules:
                    IGNORE EMPTY EVENTS
                 ======================================== */
 
-                if (!dataText) continue;
+                if (!dataText) {
+                    continue;
+                }
 
-                if (dataText === "[DONE]") {
+                if (
+                    dataText === "[DONE]"
+                ) {
                     continue;
                 }
 
@@ -623,7 +619,6 @@ Response rules:
                     await saveInteractionId(
                         data.interaction.id
                     );
-
                 }
 
 
@@ -643,9 +638,7 @@ Response rules:
                         await saveInteractionId(
                             data.interaction.id
                         );
-
                     }
-
                 }
 
 
@@ -677,9 +670,7 @@ Response rules:
 
 
                         scrollToBottom();
-
                     }
-
                 }
 
 
@@ -688,18 +679,16 @@ Response rules:
                 ======================================== */
 
                 if (
-                    eventType === "error"
+                    eventType ===
+                    "error"
                 ) {
 
                     throw new Error(
                         data.error?.message ||
-                        "Gemini streaming error."
+                        "AI streaming error."
                     );
-
                 }
-
             }
-
         }
 
 
@@ -710,9 +699,8 @@ Response rules:
         if (!aiResponse.trim()) {
 
             throw new Error(
-                "Gemini returned an empty response."
+                "AI returned an empty response."
             );
-
         }
 
 
@@ -738,12 +726,10 @@ Response rules:
 
         await loadRecentChats();
 
-    }
-
-    catch (error) {
+    } catch (error) {
 
         console.error(
-            "Gemini Error:",
+            "AI Error:",
             error
         );
 
@@ -754,12 +740,12 @@ Response rules:
         ) {
 
             loadingMessage.remove();
-
         }
 
 
         let friendlyError =
-            error.message;
+            error.message ||
+            "Something went wrong.";
 
 
         /* ========================================
@@ -767,14 +753,13 @@ Response rules:
         ======================================== */
 
         if (
-            error.message
+            friendlyError
                 .toLowerCase()
                 .includes("quota")
         ) {
 
             friendlyError =
                 "⚡ Fabre AI is temporarily unavailable because the Gemini API quota has been reached.";
-
         }
 
 
@@ -783,18 +768,14 @@ Response rules:
             `❌ ${friendlyError}`
         );
 
-    }
-
-    finally {
+    } finally {
 
         isGenerating = false;
 
         sendBtn.disabled = false;
 
         messageInput.focus();
-
     }
-
 }
 
 
@@ -817,7 +798,7 @@ function addMessage(
 
 
     /* ========================================
-       USER
+       USER MESSAGE
     ======================================== */
 
     if (sender === "user") {
@@ -840,7 +821,7 @@ function addMessage(
 
 
     /* ========================================
-       AI
+       AI MESSAGE
     ======================================== */
 
     else {
@@ -858,7 +839,6 @@ function addMessage(
                 ${formatAIResponse(text)}
             </div>
         `;
-
     }
 
 
@@ -867,7 +847,6 @@ function addMessage(
     );
 
     scrollToBottom();
-
 }
 
 
@@ -880,12 +859,10 @@ function addLoadingMessage() {
     const messageDiv =
         document.createElement("div");
 
-
     messageDiv.classList.add(
         "message",
         "ai-message"
     );
-
 
     messageDiv.innerHTML = `
         <div class="avatar">
@@ -897,17 +874,13 @@ function addLoadingMessage() {
         </div>
     `;
 
-
     messagesContainer.appendChild(
         messageDiv
     );
 
-
     scrollToBottom();
 
-
     return messageDiv;
-
 }
 
 
@@ -966,7 +939,6 @@ function formatAIResponse(text) {
 
 
     return formatted;
-
 }
 
 
@@ -983,7 +955,6 @@ function escapeHTML(text) {
         text;
 
     return div.innerHTML;
-
 }
 
 
@@ -995,7 +966,6 @@ function scrollToBottom() {
 
     messagesContainer.scrollTop =
         messagesContainer.scrollHeight;
-
 }
 
 
@@ -1008,7 +978,6 @@ async function loadRecentChats() {
     if (!chatHistory) {
         return;
     }
-
 
     try {
 
@@ -1046,7 +1015,9 @@ async function loadRecentChats() {
 
 
                 const chatItem =
-                    document.createElement("div");
+                    document.createElement(
+                        "div"
+                    );
 
 
                 chatItem.classList.add(
@@ -1079,7 +1050,6 @@ async function loadRecentChats() {
                         loadChat(
                             chatDoc.id
                         );
-
                     }
                 );
 
@@ -1087,26 +1057,29 @@ async function loadRecentChats() {
                 chatHistory.appendChild(
                     chatItem
                 );
-
             }
         );
+
+
+        if (currentChatId) {
+
+            highlightActiveChat(
+                currentChatId
+            );
+        }
 
 
         console.log(
             "Recent chats loaded."
         );
 
-    }
-
-    catch (error) {
+    } catch (error) {
 
         console.error(
             "Error loading recent chats:",
             error
         );
-
     }
-
 }
 
 
@@ -1119,7 +1092,6 @@ async function loadChat(chatId) {
     if (isGenerating) {
         return;
     }
-
 
     try {
 
@@ -1144,7 +1116,6 @@ async function loadChat(chatId) {
             );
 
             return;
-
         }
 
 
@@ -1188,17 +1159,13 @@ async function loadChat(chatId) {
             chatId
         );
 
-    }
-
-    catch (error) {
+    } catch (error) {
 
         console.error(
             "Error loading chat:",
             error
         );
-
     }
-
 }
 
 
@@ -1206,7 +1173,9 @@ async function loadChat(chatId) {
    LOAD CHAT MESSAGES
 ======================================== */
 
-async function loadChatMessages(chatId) {
+async function loadChatMessages(
+    chatId
+) {
 
     try {
 
@@ -1238,15 +1207,21 @@ async function loadChatMessages(chatId) {
         messagesContainer.innerHTML = "";
 
 
+        /* ========================================
+           EMPTY CHAT
+        ======================================== */
+
         if (snapshot.empty) {
 
             messagesContainer.innerHTML = `
                 <div class="message ai-message">
+
                     <div class="avatar">
                         🤖
                     </div>
 
                     <div class="message-content">
+
                         <p>
                             Hello! 👋 I'm Fabre AI.
                         </p>
@@ -1254,14 +1229,19 @@ async function loadChatMessages(chatId) {
                         <p>
                             How can I help you today?
                         </p>
+
                     </div>
+
                 </div>
             `;
 
             return;
-
         }
 
+
+        /* ========================================
+           DISPLAY MESSAGES
+        ======================================== */
 
         snapshot.forEach(
             (messageDoc) => {
@@ -1274,26 +1254,22 @@ async function loadChatMessages(chatId) {
                     data.role === "user"
                         ? "user"
                         : "ai",
+
                     data.text || ""
                 );
-
             }
         );
 
 
         scrollToBottom();
 
-    }
-
-    catch (error) {
+    } catch (error) {
 
         console.error(
             "Error loading chat messages:",
             error
         );
-
     }
-
 }
 
 
@@ -1330,12 +1306,9 @@ function highlightActiveChat(chatId) {
                 item.classList.add(
                     "active"
                 );
-
             }
-
         }
     );
-
 }
 
 
@@ -1343,110 +1316,114 @@ function highlightActiveChat(chatId) {
    ENTER KEY
 ======================================== */
 
-messageInput.addEventListener(
-    "keydown",
-    function (event) {
+if (messageInput) {
 
-        if (
-            event.key === "Enter" &&
-            !event.shiftKey
-        ) {
+    messageInput.addEventListener(
+        "keydown",
+        function (event) {
 
-            event.preventDefault();
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
 
-            sendMessage();
+                event.preventDefault();
 
+                sendMessage();
+            }
         }
-
-    }
-);
+    );
+}
 
 
 /* ========================================
    SEND BUTTON
 ======================================== */
 
-sendBtn.addEventListener(
-    "click",
-    sendMessage
-);
+if (sendBtn) {
+
+    sendBtn.addEventListener(
+        "click",
+        sendMessage
+    );
+}
 
 
 /* ========================================
    NEW CHAT
 ======================================== */
 
-newChatBtn.addEventListener(
-    "click",
-    async function () {
+if (newChatBtn) {
 
-        if (isGenerating) {
-            return;
-        }
+    newChatBtn.addEventListener(
+        "click",
+        async function () {
 
-
-        previousInteractionId =
-            null;
+            if (isGenerating) {
+                return;
+            }
 
 
-        currentChatId =
-            null;
+            previousInteractionId =
+                null;
 
 
-        messagesContainer.innerHTML = `
-            <div class="message ai-message">
+            currentChatId =
+                null;
 
-                <div class="avatar">
-                    🤖
+
+            messagesContainer.innerHTML = `
+                <div class="message ai-message">
+
+                    <div class="avatar">
+                        🤖
+                    </div>
+
+                    <div class="message-content">
+
+                        <p>
+                            Hello! 👋 I'm Fabre AI.
+                        </p>
+
+                        <p>
+                            How can I help you today?
+                        </p>
+
+                    </div>
+
                 </div>
-
-                <div class="message-content">
-
-                    <p>
-                        Hello! 👋 I'm Fabre AI.
-                    </p>
-
-                    <p>
-                        How can I help you today?
-                    </p>
-
-                </div>
-
-            </div>
-        `;
+            `;
 
 
-        messageInput.value = "";
+            messageInput.value = "";
 
-        messageInput.focus();
-
-
-        /* ========================================
-           REMOVE ACTIVE CHAT
-        ======================================== */
-
-        if (chatHistory) {
-
-            const items =
-                chatHistory.querySelectorAll(
-                    ".chat-history-item"
-                );
+            messageInput.focus();
 
 
-            items.forEach(
-                (item) => {
+            /* ========================================
+               REMOVE ACTIVE CHAT
+            ======================================== */
 
-                    item.classList.remove(
-                        "active"
+            if (chatHistory) {
+
+                const items =
+                    chatHistory.querySelectorAll(
+                        ".chat-history-item"
                     );
 
-                }
-            );
 
+                items.forEach(
+                    (item) => {
+
+                        item.classList.remove(
+                            "active"
+                        );
+                    }
+                );
+            }
         }
-
-    }
-);
+    );
+}
 
 
 /* ========================================
@@ -1463,17 +1440,13 @@ async function initializeChat() {
             "Fabre AI initialized."
         );
 
-    }
-
-    catch (error) {
+    } catch (error) {
 
         console.error(
             "Initialization error:",
             error
         );
-
     }
-
 }
 
 
@@ -1489,387 +1462,381 @@ const canvas =
         "particleCanvas"
     );
 
-const ctx =
-    canvas.getContext("2d");
-
-
-let particles = [];
-
-
-const particleCount = 90;
-
-const connectionDistance = 140;
-
-
-const mouse = {
-
-    x: null,
-
-    y: null,
-
-    radius: 150
-
-};
-
 
 /* ========================================
-   CANVAS SIZE
+   CHECK CANVAS
 ======================================== */
 
-function resizeCanvas() {
+if (canvas) {
 
-    canvas.width =
-        window.innerWidth;
-
-    canvas.height =
-        window.innerHeight;
-
-}
+    const ctx =
+        canvas.getContext("2d");
 
 
-resizeCanvas();
+    let particles = [];
 
 
-window.addEventListener(
-    "resize",
-    resizeCanvas
-);
+    const particleCount = 90;
+
+    const connectionDistance = 140;
 
 
-/* ========================================
-   MOUSE
-======================================== */
-
-window.addEventListener(
-    "mousemove",
-    function (event) {
-
-        mouse.x =
-            event.clientX;
-
-        mouse.y =
-            event.clientY;
-
-    }
-);
+    const mouse = {
+        x: null,
+        y: null,
+        radius: 150
+    };
 
 
-window.addEventListener(
-    "mouseout",
-    function () {
+    /* ========================================
+       CANVAS SIZE
+    ======================================== */
 
-        mouse.x = null;
+    function resizeCanvas() {
 
-        mouse.y = null;
+        canvas.width =
+            window.innerWidth;
 
-    }
-);
-
-
-/* ========================================
-   PARTICLE
-======================================== */
-
-class Particle {
-
-    constructor() {
-
-        this.x =
-            Math.random() *
-            canvas.width;
-
-        this.y =
-            Math.random() *
-            canvas.height;
-
-        this.size =
-            Math.random() * 2 +
-            0.5;
-
-        this.speedX =
-            (Math.random() - 0.5) *
-            0.5;
-
-        this.speedY =
-            (Math.random() - 0.5) *
-            0.5;
-
-        this.opacity =
-            Math.random() *
-            0.7 +
-            0.2;
-
+        canvas.height =
+            window.innerHeight;
     }
 
 
-    update() {
-
-        this.x +=
-            this.speedX;
-
-        this.y +=
-            this.speedY;
+    resizeCanvas();
 
 
-        /* ========================================
-           BOUNCE
-        ======================================== */
+    window.addEventListener(
+        "resize",
+        resizeCanvas
+    );
 
-        if (
-            this.x < 0 ||
-            this.x > canvas.width
-        ) {
 
-            this.speedX *= -1;
+    /* ========================================
+       MOUSE
+    ======================================== */
 
+    window.addEventListener(
+        "mousemove",
+        function (event) {
+
+            mouse.x =
+                event.clientX;
+
+            mouse.y =
+                event.clientY;
+        }
+    );
+
+
+    window.addEventListener(
+        "mouseout",
+        function () {
+
+            mouse.x = null;
+            mouse.y = null;
+        }
+    );
+
+
+    /* ========================================
+       PARTICLE
+    ======================================== */
+
+    class Particle {
+
+        constructor() {
+
+            this.x =
+                Math.random() *
+                canvas.width;
+
+
+            this.y =
+                Math.random() *
+                canvas.height;
+
+
+            this.size =
+                Math.random() * 2 +
+                0.5;
+
+
+            this.speedX =
+                (Math.random() - 0.5) *
+                0.5;
+
+
+            this.speedY =
+                (Math.random() - 0.5) *
+                0.5;
+
+
+            this.opacity =
+                Math.random() *
+                0.7 +
+                0.2;
         }
 
 
-        if (
-            this.y < 0 ||
-            this.y > canvas.height
-        ) {
+        update() {
 
-            this.speedY *= -1;
+            this.x +=
+                this.speedX;
 
-        }
+            this.y +=
+                this.speedY;
 
 
-        /* ========================================
-           MOUSE INTERACTION
-        ======================================== */
+            /* ========================================
+               BOUNCE
+            ======================================== */
 
-        if (
-            mouse.x !== null &&
-            mouse.y !== null
-        ) {
+            if (
+                this.x < 0 ||
+                this.x > canvas.width
+            ) {
 
-            const dx =
-                this.x -
-                mouse.x;
-
-            const dy =
-                this.y -
-                mouse.y;
-
-            const distance =
-                Math.sqrt(
-                    dx * dx +
-                    dy * dy
-                );
+                this.speedX *= -1;
+            }
 
 
             if (
-                distance > 0 &&
-                distance < mouse.radius
+                this.y < 0 ||
+                this.y > canvas.height
             ) {
 
-                const force =
-                    (
-                        mouse.radius -
-                        distance
-                    ) /
-                    mouse.radius;
-
-
-                this.x +=
-                    (
-                        dx /
-                        distance
-                    ) *
-                    force *
-                    0.5;
-
-
-                this.y +=
-                    (
-                        dy /
-                        distance
-                    ) *
-                    force *
-                    0.5;
-
+                this.speedY *= -1;
             }
 
+
+            /* ========================================
+               MOUSE INTERACTION
+            ======================================== */
+
+            if (
+                mouse.x !== null &&
+                mouse.y !== null
+            ) {
+
+                const dx =
+                    this.x -
+                    mouse.x;
+
+
+                const dy =
+                    this.y -
+                    mouse.y;
+
+
+                const distance =
+                    Math.sqrt(
+                        dx * dx +
+                        dy * dy
+                    );
+
+
+                if (
+                    distance > 0 &&
+                    distance < mouse.radius
+                ) {
+
+                    const force =
+                        (
+                            mouse.radius -
+                            distance
+                        ) /
+                        mouse.radius;
+
+
+                    this.x +=
+                        (
+                            dx /
+                            distance
+                        ) *
+                        force *
+                        0.5;
+
+
+                    this.y +=
+                        (
+                            dy /
+                            distance
+                        ) *
+                        force *
+                        0.5;
+                }
+            }
         }
 
+
+        draw() {
+
+            ctx.beginPath();
+
+
+            ctx.arc(
+                this.x,
+                this.y,
+                this.size,
+                0,
+                Math.PI * 2
+            );
+
+
+            ctx.fillStyle =
+                `rgba(168, 85, 247, ${this.opacity})`;
+
+
+            ctx.shadowBlur = 12;
+
+
+            ctx.shadowColor =
+                "rgba(168, 85, 247, 0.8)";
+
+
+            ctx.fill();
+
+
+            ctx.shadowBlur = 0;
+        }
     }
 
 
-    draw() {
+    /* ========================================
+       CREATE PARTICLES
+    ======================================== */
 
-        ctx.beginPath();
+    function createParticles() {
 
+        particles = [];
 
-        ctx.arc(
-            this.x,
-            this.y,
-            this.size,
-            0,
-            Math.PI * 2
-        );
-
-
-        ctx.fillStyle =
-            `rgba(168, 85, 247, ${this.opacity})`;
-
-
-        ctx.shadowBlur = 12;
-
-
-        ctx.shadowColor =
-            "rgba(168, 85, 247, 0.8)";
-
-
-        ctx.fill();
-
-
-        ctx.shadowBlur = 0;
-
-    }
-
-}
-
-
-/* ========================================
-   CREATE PARTICLES
-======================================== */
-
-function createParticles() {
-
-    particles = [];
-
-
-    for (
-        let i = 0;
-        i < particleCount;
-        i++
-    ) {
-
-        particles.push(
-            new Particle()
-        );
-
-    }
-
-}
-
-
-createParticles();
-
-
-/* ========================================
-   CONNECT PARTICLES
-======================================== */
-
-function connectParticles() {
-
-    for (
-        let a = 0;
-        a < particles.length;
-        a++
-    ) {
 
         for (
-            let b = a + 1;
-            b < particles.length;
-            b++
+            let i = 0;
+            i < particleCount;
+            i++
         ) {
 
-            const dx =
-                particles[a].x -
-                particles[b].x;
-
-            const dy =
-                particles[a].y -
-                particles[b].y;
-
-
-            const distance =
-                Math.sqrt(
-                    dx * dx +
-                    dy * dy
-                );
-
-
-            if (
-                distance <
-                connectionDistance
-            ) {
-
-                const opacity =
-                    1 -
-                    distance /
-                    connectionDistance;
-
-
-                ctx.beginPath();
-
-
-                ctx.moveTo(
-                    particles[a].x,
-                    particles[a].y
-                );
-
-
-                ctx.lineTo(
-                    particles[b].x,
-                    particles[b].y
-                );
-
-
-                ctx.strokeStyle =
-                    `rgba(168, 85, 247, ${opacity * 0.25})`;
-
-
-                ctx.lineWidth = 0.7;
-
-
-                ctx.stroke();
-
-            }
-
+            particles.push(
+                new Particle()
+            );
         }
-
     }
 
+
+    createParticles();
+
+
+    /* ========================================
+       CONNECT PARTICLES
+    ======================================== */
+
+    function connectParticles() {
+
+        for (
+            let a = 0;
+            a < particles.length;
+            a++
+        ) {
+
+            for (
+                let b = a + 1;
+                b < particles.length;
+                b++
+            ) {
+
+                const dx =
+                    particles[a].x -
+                    particles[b].x;
+
+
+                const dy =
+                    particles[a].y -
+                    particles[b].y;
+
+
+                const distance =
+                    Math.sqrt(
+                        dx * dx +
+                        dy * dy
+                    );
+
+
+                if (
+                    distance <
+                    connectionDistance
+                ) {
+
+                    const opacity =
+                        1 -
+                        distance /
+                        connectionDistance;
+
+
+                    ctx.beginPath();
+
+
+                    ctx.moveTo(
+                        particles[a].x,
+                        particles[a].y
+                    );
+
+
+                    ctx.lineTo(
+                        particles[b].x,
+                        particles[b].y
+                    );
+
+
+                    ctx.strokeStyle =
+                        `rgba(168, 85, 247, ${opacity * 0.25})`;
+
+
+                    ctx.lineWidth = 0.7;
+
+
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+
+    /* ========================================
+       ANIMATION
+    ======================================== */
+
+    function animateParticles() {
+
+        ctx.clearRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+
+        particles.forEach(
+            particle =>
+                particle.update()
+        );
+
+
+        connectParticles();
+
+
+        particles.forEach(
+            particle =>
+                particle.draw()
+        );
+
+
+        requestAnimationFrame(
+            animateParticles
+        );
+    }
+
+
+    animateParticles();
 }
 
-
-/* ========================================
-   ANIMATION
-======================================== */
-
-function animateParticles() {
-
-    ctx.clearRect(
-        0,
-        0,
-        canvas.width,
-        canvas.height
-    );
-
-
-    particles.forEach(
-        particle =>
-            particle.update()
-    );
-
-
-    connectParticles();
-
-
-    particles.forEach(
-        particle =>
-            particle.draw()
-    );
-
-
-    requestAnimationFrame(
-        animateParticles
-    );
-
-}
-
-
-animateParticles();
