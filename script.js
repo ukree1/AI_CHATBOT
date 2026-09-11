@@ -42,6 +42,18 @@ const newChatBtn =
 const chatHistory =
     document.getElementById("chatHistory");
 
+const sidebar =
+    document.getElementById("sidebar");
+
+const sidebarOverlay =
+    document.getElementById("sidebarOverlay");
+
+const menuToggleBtn =
+    document.getElementById("menuToggleBtn");
+
+const closeSidebarBtn =
+    document.getElementById("closeSidebarBtn");
+
 
 /* ========================================
    CHAT STATE
@@ -787,6 +799,8 @@ async function loadRecentChats() {
                 }
 
                 loadChat(chatDoc.id);
+
+                closeSidebarOnMobile();
             });
 
             chatHistory.appendChild(chatItem);
@@ -1037,7 +1051,50 @@ if (newChatBtn) {
                 item.classList.remove("active");
             });
         }
+
+        closeSidebarOnMobile();
     });
+}
+
+
+/* ========================================
+   MOBILE SIDEBAR DRAWER
+======================================== */
+
+function openSidebar() {
+
+    if (sidebar) sidebar.classList.add("open");
+    if (sidebarOverlay) sidebarOverlay.classList.add("active");
+}
+
+function closeSidebar() {
+
+    if (sidebar) sidebar.classList.remove("open");
+    if (sidebarOverlay) sidebarOverlay.classList.remove("active");
+}
+
+if (menuToggleBtn) {
+    menuToggleBtn.addEventListener("click", openSidebar);
+}
+
+if (closeSidebarBtn) {
+    closeSidebarBtn.addEventListener("click", closeSidebar);
+}
+
+if (sidebarOverlay) {
+    sidebarOverlay.addEventListener("click", closeSidebar);
+}
+
+/* Close the drawer automatically after picking a chat
+   or starting a new one, but only on narrow (mobile)
+   viewports — on desktop the sidebar is always visible
+   so there's nothing to close. */
+
+function closeSidebarOnMobile() {
+
+    if (window.matchMedia("(max-width: 700px)").matches) {
+        closeSidebar();
+    }
 }
 
 
@@ -1057,7 +1114,11 @@ if (canvas) {
 
     let particles = [];
 
-    const particleCount = 90;
+    /* Fewer particles on small screens — keeps the
+       animation smooth on lower-powered mobile GPUs
+       and saves battery. */
+    const particleCount =
+        window.innerWidth <= 700 ? 40 : 90;
 
     const connectionDistance = 140;
 

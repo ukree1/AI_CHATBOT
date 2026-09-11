@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 
     <title>Fabre AI</title>
 
@@ -14,10 +14,13 @@
     <!-- Animated Particle Background -->
     <canvas id="particleCanvas"></canvas>
 
+    <!-- Mobile sidebar backdrop -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
     <div class="app">
 
         <!-- Sidebar -->
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
 
             <div class="brand">
                 <div class="brand-icon">✦</div>
@@ -26,6 +29,8 @@
                     <h2>Fabre AI</h2>
                     <span>AI Assistant</span>
                 </div>
+
+                <button id="closeSidebarBtn" class="close-sidebar" title="Close menu" aria-label="Close menu">✕</button>
             </div>
 
             <button id="newChatBtn" class="new-chat">
@@ -56,6 +61,10 @@
             <header class="chat-header">
 
                 <div class="ai-profile">
+
+                    <button id="menuToggleBtn" class="header-btn menu-toggle" title="Menu" aria-label="Open menu">
+                        ☰
+                    </button>
 
                     <div class="ai-avatar">
                         ✦
@@ -133,9 +142,10 @@
                         id="messageInput"
                         placeholder="Message Fabre AI..."
                         rows="1"
+                        enterkeyhint="send"
                     ></textarea>
 
-                    <button id="sendBtn" title="Send message">
+                    <button id="sendBtn" title="Send message" aria-label="Send message">
                         ↑
                     </button>
 

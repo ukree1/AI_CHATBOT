@@ -15,6 +15,9 @@ body {
     background: #000;
     color: #fff;
     overflow: hidden;
+
+    /* Prevent the little grey flash / highlight box on tap (mobile) */
+    -webkit-tap-highlight-color: transparent;
 }
 
 
@@ -37,6 +40,14 @@ body {
 
 /* ========================================
    APP
+
+   100dvh (dynamic viewport height) instead of
+   100vh: on mobile browsers, 100vh includes the
+   area behind the address bar, which causes the
+   page to be taller than the visible screen and
+   the input bar to sit below the fold. dvh tracks
+   the *actual* visible viewport as browser chrome
+   shows/hides. Falls back to vh on older browsers.
 ======================================== */
 
 .app {
@@ -46,6 +57,7 @@ body {
 
     width: 100%;
     height: 100vh;
+    height: 100dvh;
 
     z-index: 1;
 }
@@ -57,6 +69,7 @@ body {
 
 .sidebar {
     width: 270px;
+    flex-shrink: 0;
 
     display: flex;
     flex-direction: column;
@@ -127,6 +140,28 @@ body {
     font-size: 11px;
 }
 
+/* Sidebar close button — only shown as a drawer on mobile */
+
+.close-sidebar {
+    display: none;
+
+    width: 34px;
+    height: 34px;
+
+    margin-left: auto;
+
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+
+    background: rgba(255, 255, 255, 0.04);
+
+    color: #999;
+
+    font-size: 16px;
+
+    cursor: pointer;
+}
+
 
 /* New Chat */
 
@@ -195,10 +230,13 @@ body {
     flex: 1;
 
     overflow-y: auto;
+
+    -webkit-overflow-scrolling: touch;
 }
 
+.chat-history-item,
 .history-item {
-    padding: 11px;
+    padding: 12px 11px;
 
     margin-bottom: 4px;
 
@@ -219,8 +257,15 @@ body {
     transition: 0.2s;
 }
 
+.chat-history-item:hover,
 .history-item:hover {
     background: rgba(255, 255, 255, 0.05);
+
+    color: #fff;
+}
+
+.chat-history-item.active {
+    background: rgba(168, 85, 247, 0.14);
 
     color: #fff;
 }
@@ -255,6 +300,30 @@ body {
 
 
 /* ========================================
+   MOBILE SIDEBAR OVERLAY (backdrop)
+======================================== */
+
+.sidebar-overlay {
+    position: fixed;
+    inset: 0;
+
+    background: rgba(0, 0, 0, 0.6);
+
+    z-index: 45;
+
+    opacity: 0;
+    pointer-events: none;
+
+    transition: opacity 0.25s ease;
+}
+
+.sidebar-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+
+/* ========================================
    CHAT CONTAINER
 ======================================== */
 
@@ -283,6 +352,7 @@ body {
 
 .chat-header {
     height: 70px;
+    flex-shrink: 0;
 
     display: flex;
     align-items: center;
@@ -305,6 +375,10 @@ body {
     gap: 12px;
 }
 
+.menu-toggle {
+    display: none; /* shown only on mobile, see media query */
+}
+
 .ai-avatar {
     width: 38px;
     height: 38px;
@@ -312,6 +386,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+
+    flex-shrink: 0;
 
     border-radius: 50%;
 
@@ -363,6 +439,11 @@ body {
 .header-btn {
     width: 36px;
     height: 36px;
+    flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
     border: 1px solid rgba(255, 255, 255, 0.08);
 
@@ -392,6 +473,7 @@ body {
     flex: 1;
 
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 
     padding: 40px 30px 30px;
 }
@@ -511,6 +593,9 @@ body {
     font-size: 14px;
 
     line-height: 1.7;
+
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .message-content p {
@@ -565,8 +650,13 @@ body {
 
 .input-wrapper {
     width: 100%;
+    flex-shrink: 0;
 
     padding: 10px 20px 20px;
+
+    /* Keep the input clear of the home-indicator /
+       rounded corners on iPhone notch devices */
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
 }
 
 .input-container {
@@ -620,7 +710,9 @@ textarea {
 
     font-family: inherit;
 
-    font-size: 14px;
+    /* 16px minimum stops iOS Safari from
+       auto-zooming the page on focus */
+    font-size: 16px;
 
     line-height: 20px;
 }
@@ -635,8 +727,11 @@ textarea::placeholder {
 #sendBtn {
     width: 40px;
     height: 40px;
-
     flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
     border: none;
 
@@ -727,41 +822,175 @@ textarea::placeholder {
 
 
 /* ========================================
+   TABLET
+======================================== */
+
+@media (max-width: 900px) {
+
+    .sidebar {
+        width: 240px;
+    }
+
+    .messages {
+        padding: 32px 20px;
+    }
+}
+
+
+/* ========================================
    MOBILE
+   Sidebar becomes a slide-out drawer instead
+   of disappearing, so chat history stays
+   reachable on phones.
 ======================================== */
 
 @media (max-width: 700px) {
 
+    .app {
+        overflow: hidden;
+    }
+
     .sidebar {
-        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+
+        width: min(82vw, 300px);
+        height: 100dvh;
+
+        z-index: 50;
+
+        transform: translateX(-100%);
+
+        transition: transform 0.28s ease;
+
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .close-sidebar {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .menu-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .chat-header {
-        padding: 0 16px;
+        height: 62px;
+
+        padding: 0 14px;
+    }
+
+    .ai-profile {
+        gap: 8px;
+    }
+
+    .ai-profile h1 {
+        font-size: 14px;
     }
 
     .messages {
-        padding: 25px 15px;
+        padding: 20px 14px;
     }
 
     .welcome {
-        margin-top: 20px;
-        margin-bottom: 35px;
+        margin-top: 16px;
+        margin-bottom: 30px;
+    }
+
+    .welcome-icon {
+        width: 52px;
+        height: 52px;
+
+        font-size: 24px;
     }
 
     .welcome h2 {
-        font-size: 22px;
+        font-size: 20px;
+    }
+
+    .welcome p {
+        font-size: 13px;
+    }
+
+    .message {
+        gap: 8px;
+
+        margin-bottom: 18px;
     }
 
     .message-content {
-        max-width: 85%;
+        max-width: 82%;
+
+        font-size: 13.5px;
+    }
+
+    .avatar {
+        width: 30px;
+        height: 30px;
+
+        font-size: 13px;
     }
 
     .input-wrapper {
         padding: 8px 10px 14px;
+        padding-bottom: max(14px, env(safe-area-inset-bottom));
+    }
+
+    .input-container {
+        padding: 6px 6px 6px 14px;
+
+        border-radius: 20px;
+    }
+
+    #sendBtn {
+        width: 38px;
+        height: 38px;
     }
 
     .input-footer {
         display: none;
+    }
+}
+
+
+/* Extra-small phones */
+
+@media (max-width: 380px) {
+
+    .message-content {
+        max-width: 88%;
+    }
+
+    .welcome h2 {
+        font-size: 18px;
+    }
+}
+
+
+/* ========================================
+   REDUCED MOTION
+======================================== */
+
+@media (prefers-reduced-motion: reduce) {
+
+    .message {
+        animation: none;
+    }
+
+    .sidebar {
+        transition: none;
+    }
+
+    .sidebar-overlay {
+        transition: none;
     }
 }
