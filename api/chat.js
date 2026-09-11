@@ -1,4 +1,3 @@
-javascript
 /* ========================================
    FABRE AI - VERCEL API
    api/chat.js
@@ -21,6 +20,30 @@ export default async function handler(req, res) {
             error: "Method not allowed."
         });
     }
+
+
+    /* ========================================
+       PREVENT UNCAUGHT STREAM CRASHES
+
+       If the client disconnects mid-stream
+       (closed tab, dropped network, etc.),
+       Node can emit an 'error' event on the
+       response object. With no listener, that
+       crashes the whole function invocation
+       (FUNCTION_INVOCATION_FAILED). This makes
+       it a normal, safely-logged event instead.
+    ======================================== */
+
+    let clientDisconnected = false;
+
+    res.on("error", (err) => {
+        clientDisconnected = true;
+        console.warn("Response stream error (likely client disconnect):", err.message);
+    });
+
+    req.on("close", () => {
+        clientDisconnected = true;
+    });
 
 
     try {
@@ -61,12 +84,14 @@ export default async function handler(req, res) {
         if (!API_KEY) {
 
             console.error(
-                "GEMINI_API_KEY is missing."
+                "GEMINI_API_KEY is missing. " +
+                "Add it in Vercel Project Settings → Environment Variables, " +
+                "then redeploy (a local .env file is NOT enough for production)."
             );
 
             return res.status(500).json({
                 error:
-                    "Gemini API key is not configured."
+                    "Gemini API key is not configured on the server."
             });
         }
 
@@ -137,8 +162,11 @@ Response rules:
            GEMINI REQUEST
         ======================================== */
 
-        const response =
-            await fetch(
+        let response;
+
+        try {
+
+            response = await fetch(
                 API_URL,
                 {
 
@@ -159,6 +187,24 @@ Response rules:
                         )
                 }
             );
+
+        } catch (fetchError) {
+
+            /* ========================================
+               NETWORK / UPSTREAM FAILURE
+               (DNS issue, Gemini unreachable, etc.)
+            ======================================== */
+
+            console.error(
+                "Failed to reach Gemini API:",
+                fetchError
+            );
+
+            return res.status(502).json({
+                error: "Could not reach the Gemini API.",
+                details: fetchError.message
+            });
+        }
 
 
         /* ========================================
@@ -251,6 +297,22 @@ Response rules:
 
             while (true) {
 
+                /* ========================================
+                   STOP IF CLIENT ALREADY LEFT
+                ======================================== */
+
+                if (clientDisconnected || res.writableEnded) {
+
+                    try {
+                        await reader.cancel();
+                    } catch {
+                        // upstream stream already gone, ignore
+                    }
+
+                    break;
+                }
+
+
                 const {
                     value,
                     done
@@ -274,9 +336,30 @@ Response rules:
 
                 /* ========================================
                    SEND STREAM TO FRONTEND
+                   (guarded against write failures)
                 ======================================== */
 
-                res.write(chunk);
+                try {
+
+                    res.write(chunk);
+
+                } catch (writeError) {
+
+                    console.warn(
+                        "Write failed (client likely disconnected):",
+                        writeError.message
+                    );
+
+                    clientDisconnected = true;
+
+                    try {
+                        await reader.cancel();
+                    } catch {
+                        // ignore
+                    }
+
+                    break;
+                }
             }
 
         } finally {
@@ -289,7 +372,9 @@ Response rules:
            END RESPONSE
         ======================================== */
 
-        res.end();
+        if (!res.writableEnded) {
+            res.end();
+        }
 
 
     } catch (error) {
@@ -314,7 +399,8 @@ Response rules:
             });
         }
 
-
-        res.end();
+        if (!res.writableEnded) {
+            res.end();
+        }
     }
 }
